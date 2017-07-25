@@ -1,0 +1,76 @@
+
+먼저 오픈시프트의 ansible 설치
+=========================
+구축 환경
+-------
+오픈시프트 공식사이트에서는 메모리 16gb이상의 환경을 요구하지만 저사양에서도 실습하기에는 크게 상관은 없다.
+
+pc * 3
+OS centos 7.0
+cpu 3.0ghz
+memory 8gb
+
+먼저 설치 해줘야 할 것이 있다.
+ansible이다.
+
+ansible
+-------
+ansible은 멀티 노드 환경의 자동화 설치 툴이다.
+openshift뿐만아니라, opsnstack의 kolla, 요즘에 혜성처럼 등장한 helm 과 같은 프로젝트에서도 많이 쓰인다.
+ansible은 infra환경을 배포하면서 일부분만 변경한 옵션을 주거나, 노드 하나만 추가하거나 삭제하거나, 전체 리셋하거나 등의 옵션을 줄 수 있다.
+물론 이러한 스크립트는 환경별로 상이함으로 ansible이 자체 지원하는 것이 아니라. playbook이라는 yml 파일을 작성자가 어디까지 구현해놨냐에 달려있다.
+uninstall이나 reset, option 변경, 일부 모듈만 추가해서 설치하기 등
+
+ansible은 멀티노드의 서버들끼리 공개키 암호화 방식으로 ssh통신할 수 있게된 환경에서 설치될 서버의 터미널에 접근해서 작업하도록 한다. 
+먼저 installer가 되는 pc에서 먼저 공개키와 개인키를 생성한다.
+
+$ssh-keygen -t rsa 
+//본인이 좋을대로 설정한다. 나는 그냥 엔터를 두번 눌러서 아무 암호없이 설정했다.
+//기존에 쓰던 키를 사용해도 아무런 문제가 없다.
+//만약 아무 옵션을 주지않고 키를 생성하면 ~(계정폴더)의 하위에 .ssh 폴더와 그 폴더안에 id_rsa와 id_rsa.pub파일이 생김을 확인할 수 있다.
+//id_rsa가 개인키로 외부로 유출되면 안되는 키고
+//id_rsa.pub가 외부에 공개할 공개키이다. 이 공개키를 외부에 공개해서 등록을 시키고 상대방의 ~/.ssh/authorized_keys에 등록해준다.
+
+$scp ~/.ssh/id_rsa.pub 상대계정@xxx.xxx.xxx.xxx:/폴더위치
+//이런식으로 scp를 통해 공개키를 상대방의 '/폴더위치'에 전송한다.
+
+$cat id_rsa.pub >> ~/.ssh/authorized_keys
+//해당 서버에 접속해서 위의 커맨드를 입력하면 상대방이 이제 나를 인식하게 된다.
+//물론 직접 pub파일을 열어서 복사한뒤 authorized_keys의 맨밑에 추가해도 된다.
+
+//그런데 사실 제일 좋은 방법은
+//개인키를 갖고있고 인스톨을 수행할 서버의 .ssh에 id_rsa와 id_rsa.pub파일을 두고
+$ssh-copy-id 상대계정@xxx.xxx.xxx.xxx 를 하면 끝이다. (상대방 pc의 암호만 입력해주면 끝)
+//그러면 앞에서 수동으로 해준 작업이 한 스텝으로 줄어든다.
+//자동으로 ~/.ssh/authorized_keys에 들어가기 문디ㅏ.
+
+위의 과정이 끝나고나면 모든 서버들이 installer가 될 서버를 알게된다.
+확인해보려면 installer가 될 서버에서 ssh 상대계정@xxx.xxx.xxx.xxx 만으로 pw입력없이 로그인이 되는지 모든 서버에서 확인해보도록 한다.
+
+그러면 그 installer서버에서만 ansible을 설치해준다.
+먼저 prerequsite
+
+모든 prerrequisite 사항은 installer 피시에서만 작업하고 나머지 피시는 앤서블이 들어가서 필요한게 있으면 받거나 할 것이다.
+yum update
+yum install epel-release (ansible 설치를 위해 해줘야하는 자질구래한 파일들을 한번에 설치해줌)
+yum install ansible 
+yum install git (단순히 클론해서 openshift-ansible 받아야 함)
+yum install -y ansible pyOpenSSL python-cryptography python-lxml httpd-tools
+yum install python-pip
+pip install  --upgrade pip
+pip install -U setuptools
+sudo yum install gcc libffi-devel python-devel openssl-devel
+
+(openshift 정식 문서보다 약간 더 많은 prerequisite 사항이다. 옵션에 따라서 추가로 더 많이 설치하거나 더 적게 설치해도 되기 때문이다.)
+(본 설치 과정은 해당 설치파일 중 하나라도 빠지면 설치도중 애러가 나서 재설치를 해야한다. 설치시간이 30분가까이 걸림으로 부디 다 설치하고 시작하길 바란다.)
+
+metrics까지 설치하려면
+yum install java-1.8.0-openjdk-headless
+yum install python-passlib -y 
+
+여기까지 오면 설치과정의 절반을 온것이다.
+
+길게 써놨지만 사실 요약하면 
+1.ssh 공개키 방식으로 인스톨러가 될 서버를 모두 알게함 //가끔 퍼미션 오류가 나서 전 전부 루트계정으로 진행했습니다.
+2.yum에서 몇가지 유틸을 설치한다.
+3.3은 ansible을 설치하려면 hosts파일을 어떻게 변경하고 어떤 옵션을 줘야하는지, 미터링 서비스를 하려면 무슨 옵션을 줘야하는지 알아보겠다.

@@ -1,0 +1,87 @@
+Ansible playbook 세팅
+====================
+Ansible Playbook config 설정
+---------------------------
+#cd ~
+#git clone –b release-1.5 https://github.com/openshift/openshift-ansible.git
+#vi ~/openshift-ansible/ansible.cfg
+주석 처리 된 것 중 #hostfile = inventory/byo/hosts를 hostfile = inventory/byo/hosts 로 변경해 주석 해제
+# hostfile = inventory/byo/hosts
+
+
+#vi ~/openshift-ansible/roles/openshift_metrics/tasks/generate_hawkular_certificates.yaml 
+아래의 내용에서 no_log에서 true 처리 된 부분 false로 변경 // metrics와 auto scale 기능 활성을 위한 옵션
+
+- local_action: slurp src="{{ local_tmp.stdout }}/hawkular-metrics.pwd"
+23	  register: hawkular_metrics_pwd
+24	  no_log: false
+25	  become: false
+…	
+28	  local_action: htpasswd path="{{ local_tmp.stdout }}/hawkular-metrics.htpasswd" name=hawkular password="{{ hawkular_metrics_pwd.content | b64decode }}"
+29	  no_log: false
+30	  become: false
+
+노드가 될 서버들
+-------------
+192.168.10.11 마스터 노드		//master가 될 노드
+192.168.10.12 인프라 노드		//docker registry, router 등이 구축될 노드
+192.168.10.13 프라이머리 노드	//pods(컨테이너)가 실행될 노드
+
+# vi inventory/byo/hosts 
+아래의 스크립트를 입력 (여기까지 오면 설치 준비과정은 끝난 것이다.)
+
+inventory/byo/hosts 
+--------------------
+[OSEv3:children]
+masters
+nodes
+
+[OSEv3:vars]
+ansible_ssh_user=root
+ansible_become=true
+deployment_type=origin
+openshift_install_examples=true
+openshift_master_identity_providers=[{'name': 'htpasswd_auth', 'login': 'true', 'challenge': 'true', 'kind': 'HTPasswdPasswordIdentityProvider', 'filename': '/etc/origin/master/htpasswd'}]
+openshift_master_htpasswd_users={'demo': '$apr1$.MaA77kd$Rlnn6RXq9kCjnEfh5I3w/.'}
+
+openshift_release=v1.5
+openshift_image_tag=v1.5.0
+containerized=true
+
+# 라우터와 레지스트리가 infra 노드에 생성되도록 지정
+openshift_hosted_router_selector='region=infra'
+openshift_hosted_registry_selector='region=infra'
+# 팟은 primary 노드에서 실행 될 것이다.
+osm_default_node_selector='region=primary'
+
+# domain으로 지정해도 좋고, ip로 지정해도 좋다.
+# 제대로 구축을 하려면, 사실 hostname으로 등록해서 관리하고 /etc/hosts를 수정해야 한다.
+# 그리고 DNS 서버를 구축해서 등록해줘야 할 것이다.
+openshift_public_hostname=192.168.10.11
+openshift_master_default_subdomain=apps.openshift_test
+
+
+#cpu, 메모리, 네트워크 트래픽에 관련된 모니터링을 제공한다.
+#metrics
+openshift_hosted_metrics_deploy=true
+openshift_master_metrics_public_url=hawkular-metrics.test
+openshift_hosted_metrics_deployer_version=v1.5.0
+use_cluster_metrics=true
+
+[masters]
+openshift_master.test openshift_public_hostname="192.168.10.11"
+
+[nodes]
+192.168.10.11
+192.168.10.12 openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
+192.168.10.13 openshift_node_labels="{'region': 'primary', 'zone': 'default'}“
+
+Ansible 설치 시작
+===============
+#ansible-playbook –i ~/openshift-ansible/inventory/byo/hosts ~/openshift-ansible/.ansible.cfg
+----------------------------------------------------------------------------------------------
+쭉쭉 진행하고 가끔 permission이나 패키지가 빠져있다거나 보안관련 애러가 난다.
+설치를 하면서 -v, -vv, -vvv 옵션을 주어 로그를 확인 할 수 있는데 적절하게 처리해준다.
+(v의 갯수가 더 많은 수록 좀 더 상세한 로그가 나온다.)
+
+대부분 패키지 관련 오류는 installer side에서 설치해달라는 의미이니 node에서는 조작하지 않도록 한다.
